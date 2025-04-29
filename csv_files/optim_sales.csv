@@ -1,0 +1,21 @@
+sales_id,salesman_id,first_name,last_name,nationality,national_id,phone_number,age,sex,territory,email_address,manager_id
+1,SM0001,John,Smith,American,A12345678,555-123-4567,45,M,North America,john.smith@optim.com,
+2,SM0002,Maria,Garcia,Spanish,B87654321,555-234-5678,42,F,Europe,maria.garcia@optim.com,
+3,SM0003,Akira,Tanaka,Japanese,C23456789,555-345-6789,50,M,Asia,akira.tanaka@optim.com,
+4,SM0004,Sarah,Johnson,British,D34567890,555-456-7890,39,F,Europe,sarah.johnson@optim.com,SM0002
+5,SM0005,Mohamed,Al-Fayed,Egyptian,E45678901,555-567-8901,47,M,Middle East,mohamed.alfayed@optim.com,SM0002
+6,SM0006,Robert,Williams,American,F56789012,555-678-9012,32,M,North America,robert.williams@optim.com,SM0001
+7,SM0007,Jennifer,Chen,Chinese,G67890123,555-789-0123,29,F,Asia,jennifer.chen@optim.com,SM0003
+8,SM0008,Carlos,Lopez,Mexican,H78901234,555-890-1234,35,M,North America,carlos.lopez@optim.com,SM0001
+9,SM0009,Emma,Brown,British,I89012345,555-901-2345,31,F,Europe,emma.brown@optim.com,SM0002
+10,SM0010,Ahmed,Hassan,Saudi,J90123456,555-012-3456,38,M,Middle East,ahmed.hassan@optim.com,SM0002
+11,SM0011,David,Lee,Korean,K01234567,555-123-7890,33,M,Asia,david.lee@optim.com,SM0003
+12,SM0012,Linda,Martinez,American,L12345678,555-234-8901,36,F,North America,linda.martinez@optim.com,SM0001
+13,SM0013,Thomas,Wilson,Canadian,M23456789,555-345-9012,41,M,North America,thomas.wilson@optim.com,SM0001
+14,SM0014,Sophia,Kim,Korean,N34567890,555-456-0123,27,F,Asia,sophia.kim@optim.com,SM0003
+15,SM0015,Michael,Taylor,Australian,O45678901,555-567-1234,44,M,Oceania,michael.taylor@optim.com,SM0001
+16,SM0016,Ana,Fernandez,Spanish,P56789012,555-678-2345,30,F,Europe,ana.fernandez@optim.com,SM0002
+17,SM0017,James,Brown,American,Q67890123,555-789-3456,37,M,North America,james.brown@optim.com,SM0001
+18,SM0018,Yuki,Sato,Japanese,R78901234,555-890-4567,34,F,Asia,yuki.sato@optim.com,SM0003
+19,SM0019,Daniel,Müller,German,S89012345,555-901-5678,40,M,Europe,daniel.mueller@optim.com,SM0002
+20,SM0020,Olivia,Clark,British,T90123456,555-012-6789,28,F,Europe,olivia.clark@optim.com,SM0002

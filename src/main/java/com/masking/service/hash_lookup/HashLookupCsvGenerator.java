@@ -1,0 +1,533 @@
+// package com.masking.service.hash_lookup;
+//
+// import com.masking.component.ValidationResponse;
+// import com.masking.model.hash_lookup.HashLookupStore;
+// import java.io.*;
+// import java.nio.file.Files;
+// import java.nio.file.Paths;
+// import java.security.MessageDigest;
+// import java.util.*;
+// import org.springframework.stereotype.Service;
+// import org.springframework.web.multipart.MultipartFile;
+//
+// @Service
+// public class HashLookupCsvGenerator {
+//
+//  public ValidationResponse process(
+//      MultipartFile sourceCsv, MultipartFile lookupCsv, HashLookupStore hashLookupStore)
+//      throws Exception {
+//    // Initialize ValidationResponse to track status and messages
+//    ValidationResponse validationResponse = new ValidationResponse();
+//
+//    // Create output folder
+//    String outputDir = "hash_lookup";
+//    Files.createDirectories(Paths.get(outputDir));
+//    String outputCsvPath = outputDir + "/output.csv";
+//
+//    // Parse input CSVs
+//    List<Map<String, String>> sourceData = readCsv(sourceCsv);
+//    List<Map<String, String>> lookupData = readCsv(lookupCsv);
+//
+//    // Prepare lookup map if caching is enabled
+//    Map<String, Map<String, String>> lookupMap = new HashMap<>();
+//    if (Boolean.TRUE.equals(hashLookupStore.getCacheEnabled())) {
+//      for (Map<String, String> row : lookupData) {
+//        String key = buildKey(row, hashLookupStore.getLookupSearchColumns(), hashLookupStore);
+//        lookupMap.put(key, row);
+//      }
+//    }
+//
+//    // Prepare output structure
+//    List<Map<String, String>> outputRows = new ArrayList<>();
+//    List<String> outputHeader = new ArrayList<>(sourceData.get(0).keySet());
+//
+//    // Check if destination columns are present
+//    boolean destinationColumnsPresent = true;
+//    for (String destCol : hashLookupStore.getDestinationColumns()) {
+//      if (!sourceData.get(0).containsKey(destCol)) {
+//        destinationColumnsPresent = false;
+//        validationResponse.setMessages(
+//            List.of("Destination column " + destCol + " not found in source data."));
+//      }
+//    }
+//
+//    // If destination columns are not present, use lookup value columns instead
+//    if (!destinationColumnsPresent) {
+//      outputHeader.removeAll(hashLookupStore.getSourceSearchColumns());
+//      outputHeader.addAll(hashLookupStore.getLookupValueColumns());
+//      validationResponse.setMessages(List.of("Using lookup value columns as destination
+// columns"));
+//    } else {
+//      outputHeader.removeAll(hashLookupStore.getSourceSearchColumns());
+//      outputHeader.addAll(hashLookupStore.getDestinationColumns());
+//    }
+//
+//    // Process each source row
+//    for (Map<String, String> sourceRow : sourceData) {
+//      String key = buildKey(sourceRow, hashLookupStore.getSourceSearchColumns(), hashLookupStore);
+//      String hashedKey = hashValue(key, hashLookupStore.getAlgorithm(),
+// hashLookupStore.getSeed());
+//
+//      Map<String, String> matchedRow = null;
+//
+//      if (Boolean.TRUE.equals(hashLookupStore.getCacheEnabled())) {
+//        matchedRow = lookupMap.get(hashedKey);
+//      } else {
+//        for (Map<String, String> row : lookupData) {
+//          String rawKey = buildKey(row, hashLookupStore.getLookupSearchColumns(),
+// hashLookupStore);
+//          if (rawKey.equals(hashedKey)) {
+//            matchedRow = row;
+//            break;
+//          }
+//        }
+//      }
+//
+//      Map<String, String> outputRow = new LinkedHashMap<>();
+//      for (String col : sourceRow.keySet()) {
+//        if (!hashLookupStore.getSourceSearchColumns().contains(col)) {
+//          outputRow.put(col, sourceRow.get(col));
+//        }
+//      }
+//
+//      // Adding matched lookup data to output row
+//      if (matchedRow != null) {
+//        for (int i = 0; i < hashLookupStore.getDestinationColumns().size(); i++) {
+//          String destCol = hashLookupStore.getDestinationColumns().get(i);
+//          String lookupValCol = hashLookupStore.getLookupValueColumns().get(i);
+//          outputRow.put(destCol, matchedRow.getOrDefault(lookupValCol, ""));
+//        }
+//      } else if (hashLookupStore.getPreserveOptions().contains("PRESERVE")) {
+//        for (String destCol : hashLookupStore.getDestinationColumns()) {
+//          outputRow.put(destCol, "");
+//        }
+//      }
+//
+//      outputRows.add(outputRow);
+//    }
+//
+//    // Write the output CSV file
+//    writeCsv(outputCsvPath, outputHeader, outputRows);
+//
+//    // Set validation response status and return
+//    validationResponse.setStatus("Success");
+//    validationResponse.setMessages(
+//        new ArrayList<>(List.of("CSV processing completed successfully.")));
+//    return validationResponse;
+//  }
+//
+//  private void writeCsv(String path, List<String> headers, List<Map<String, String>> data)
+//      throws Exception {
+//    File file = new File(path);
+//    BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+//    writer.write(String.join(",", headers));
+//    writer.newLine();
+//    for (Map<String, String> row : data) {
+//      List<String> values = new ArrayList<>();
+//      for (String header : headers) {
+//        values.add(row.getOrDefault(header, ""));
+//      }
+//      writer.write(String.join(",", values));
+//      writer.newLine();
+//    }
+//    writer.close();
+//  }
+//
+//  private List<Map<String, String>> readCsv(MultipartFile file) throws Exception {
+//    List<Map<String, String>> result = new ArrayList<>();
+//    BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()));
+//    String[] headers = reader.readLine().split(",");
+//    String line;
+//    while ((line = reader.readLine()) != null) {
+//      String[] values = line.split(",", -1);
+//      Map<String, String> row = new LinkedHashMap<>();
+//      for (int i = 0; i < headers.length; i++) {
+//        row.put(headers[i], i < values.length ? values[i] : "");
+//      }
+//      result.add(row);
+//    }
+//    return result;
+//  }
+//
+//  private String buildKey(Map<String, String> row, List<String> columns, HashLookupStore config) {
+//    StringBuilder sb = new StringBuilder();
+//    for (String col : columns) {
+//      String val = row.getOrDefault(col, "");
+//      if ("TRIM".equalsIgnoreCase(config.getTrimCharacters())) val = val.trim();
+//      if ("UPPER".equalsIgnoreCase(config.getTrimCharacters())) val = val.toUpperCase();
+//      sb.append(val);
+//    }
+//    return sb.toString();
+//  }
+//
+//  private String hashValue(String input, String algorithm, String seed) throws Exception {
+//    String finalInput = (seed != null ? seed : "") + input;
+//    MessageDigest md = MessageDigest.getInstance(algorithm != null ? algorithm : "SHA-256");
+//    byte[] hash = md.digest(finalInput.getBytes("UTF-8"));
+//    StringBuilder hex = new StringBuilder();
+//    for (byte b : hash) hex.append(String.format("%02x", b));
+//    return hex.toString();
+//  }
+// }
+
+package com.masking.service.hash_lookup;
+
+import com.masking.component.ValidationResponse;
+import com.masking.model.hash_lookup.HashLookupStore;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.logging.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+// @Service
+// public class HashLookupCsvGenerator {
+//
+//    public ValidationResponse process(
+//            MultipartFile sourceCsv, MultipartFile lookupCsv, HashLookupStore hashLookupStore)
+//            throws Exception {
+//        // Initialize ValidationResponse to track status and messages
+//        ValidationResponse validationResponse = new ValidationResponse();
+//
+//        // Create output folder
+//        String outputDir = "hash_lookup";
+//        Files.createDirectories(Paths.get(outputDir));
+//
+//        // Add timestamp to the output file name
+//        String timestamp = new SimpleDateFormat("ddHHmmss").format(new Date());
+//        String outputCsvPath = outputDir + "/output_" + timestamp + ".csv";
+//
+//        // Parse input CSVs
+//        List<Map<String, String>> sourceData = readCsv(sourceCsv);
+//        List<Map<String, String>> lookupData = readCsv(lookupCsv);
+//
+//        // Prepare lookup map if caching is enabled
+//        Map<String, Map<String, String>> lookupMap = new HashMap<>();
+//        if (Boolean.TRUE.equals(hashLookupStore.getCacheEnabled())) {
+//            for (Map<String, String> row : lookupData) {
+//                String key = buildKey(row, hashLookupStore.getLookupSearchColumns(),
+// hashLookupStore);
+//                lookupMap.put(key, row);
+//            }
+//        }
+//
+//        // Prepare output structure
+//        List<Map<String, String>> outputRows = new ArrayList<>();
+//        List<String> outputHeader = new ArrayList<>(sourceData.get(0).keySet());
+//
+//        // Check if destination columns are present
+//        boolean destinationColumnsPresent = true;
+//        for (String destCol : hashLookupStore.getDestinationColumns()) {
+//            if (!sourceData.get(0).containsKey(destCol)) {
+//                destinationColumnsPresent = false;
+//                validationResponse.setMessages(
+//                        List.of("Destination column " + destCol + " not found in source data."));
+//            }
+//        }
+//
+//        // If destination columns are not present, use lookup value columns instead
+//        if (!destinationColumnsPresent) {
+//            outputHeader.removeAll(hashLookupStore.getSourceSearchColumns());
+//            outputHeader.addAll(hashLookupStore.getLookupValueColumns());
+//            validationResponse.setMessages(List.of("Using lookup value columns as destination
+// columns"));
+//        } else {
+//            outputHeader.removeAll(hashLookupStore.getSourceSearchColumns());
+//            outputHeader.addAll(hashLookupStore.getDestinationColumns());
+//        }
+//
+//        // Process each source row
+//        for (Map<String, String> sourceRow : sourceData) {
+//            String key = buildKey(sourceRow, hashLookupStore.getSourceSearchColumns(),
+// hashLookupStore);
+//            String hashedKey = hashValue(key, hashLookupStore.getAlgorithm(),
+// hashLookupStore.getSeed());
+//
+//            Map<String, String> matchedRow = null;
+//
+//            if (Boolean.TRUE.equals(hashLookupStore.getCacheEnabled())) {
+//                matchedRow = lookupMap.get(hashedKey);
+//            } else {
+//                for (Map<String, String> row : lookupData) {
+//                    String rawKey = buildKey(row, hashLookupStore.getLookupSearchColumns(),
+// hashLookupStore);
+//                    if (rawKey.equals(hashedKey)) {
+//                        matchedRow = row;
+//                        break;
+//                    }
+//                }
+//            }
+//
+//            Map<String, String> outputRow = new LinkedHashMap<>();
+//            for (String col : sourceRow.keySet()) {
+//                if (!hashLookupStore.getSourceSearchColumns().contains(col)) {
+//                    outputRow.put(col, sourceRow.get(col));
+//                }
+//            }
+//
+//            // Adding matched lookup data to output row
+//            if (matchedRow != null) {
+//                for (int i = 0; i < hashLookupStore.getDestinationColumns().size(); i++) {
+//                    String destCol = hashLookupStore.getDestinationColumns().get(i);
+//                    String lookupValCol = hashLookupStore.getLookupValueColumns().get(i);
+//                    outputRow.put(destCol, matchedRow.getOrDefault(lookupValCol, ""));
+//                }
+//            } else if (hashLookupStore.getPreserveOptions().contains("PRESERVE")) {
+//                for (String destCol : hashLookupStore.getDestinationColumns()) {
+//                    outputRow.put(destCol, "");
+//                }
+//            }
+//
+//            outputRows.add(outputRow);
+//        }
+//
+//        // Write the output CSV file
+//        writeCsv(outputCsvPath, outputHeader, outputRows);
+//
+//        // Set validation response status and return
+//        validationResponse.setStatus("Success");
+//        validationResponse.setMessages(
+//                new ArrayList<>(List.of("CSV processing completed successfully.")));
+//        return validationResponse;
+//    }
+//
+//    private void writeCsv(String path, List<String> headers, List<Map<String, String>> data)
+//            throws Exception {
+//        File file = new File(path);
+//        BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+//        writer.write(String.join(",", headers));
+//        writer.newLine();
+//        for (Map<String, String> row : data) {
+//            List<String> values = new ArrayList<>();
+//            for (String header : headers) {
+//                values.add(row.getOrDefault(header, ""));
+//            }
+//            writer.write(String.join(",", values));
+//            writer.newLine();
+//        }
+//        writer.close();
+//    }
+//
+//    private List<Map<String, String>> readCsv(MultipartFile file) throws Exception {
+//        List<Map<String, String>> result = new ArrayList<>();
+//        BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()));
+//        String[] headers = reader.readLine().split(",");
+//        String line;
+//        while ((line = reader.readLine()) != null) {
+//            String[] values = line.split(",", -1);
+//            Map<String, String> row = new LinkedHashMap<>();
+//            for (int i = 0; i < headers.length; i++) {
+//                row.put(headers[i], i < values.length ? values[i] : "");
+//            }
+//            result.add(row);
+//        }
+//        return result;
+//    }
+//
+//    private String buildKey(Map<String, String> row, List<String> columns, HashLookupStore config)
+// {
+//        StringBuilder sb = new StringBuilder();
+//        for (String col : columns) {
+//            String val = row.getOrDefault(col, "");
+//            if ("TRIM".equalsIgnoreCase(config.getTrimCharacters())) val = val.trim();
+//            if ("UPPER".equalsIgnoreCase(config.getTrimCharacters())) val = val.toUpperCase();
+//            sb.append(val);
+//        }
+//        return sb.toString();
+//    }
+//
+//    private String hashValue(String input, String algorithm, String seed) throws Exception {
+//        String finalInput = (seed != null ? seed : "") + input;
+//        MessageDigest md = MessageDigest.getInstance(algorithm != null ? algorithm : "SHA-256");
+//        byte[] hash = md.digest(finalInput.getBytes("UTF-8"));
+//        StringBuilder hex = new StringBuilder();
+//        for (byte b : hash) hex.append(String.format("%02x", b));
+//        return hex.toString();
+//    }
+// }
+
+@Service
+public class HashLookupCsvGenerator {
+
+  public ValidationResponse process(MultipartFile sourceCsv, MultipartFile lookupCsv, HashLookupStore hashLookupStore) throws Exception {
+    // Initialize ValidationResponse to track status and messages
+    ValidationResponse validationResponse = new ValidationResponse();
+
+    // Create output folder
+    String outputDir = "hash_lookup";
+    Files.createDirectories(Paths.get(outputDir));
+
+    // Add timestamp to the output file name
+    String timestamp = new SimpleDateFormat("ddHHmmss").format(new Date());
+    String outputCsvPath = outputDir + "/output_" + timestamp + ".csv";
+
+    // Parse input CSVs
+    List<Map<String, String>> sourceData = readCsv(sourceCsv);
+    List<Map<String, String>> lookupData = readCsv(lookupCsv);
+
+    // Prepare lookup map if caching is enabled
+    Map<String, Map<String, String>> lookupMap = buildLookupMap(lookupData, hashLookupStore);
+
+    // Prepare output structure
+    List<Map<String, String>> outputRows = new ArrayList<>();
+    List<String> outputHeader = prepareOutputHeader(sourceData, hashLookupStore, validationResponse);
+
+    // Process each source row
+    for (Map<String, String> sourceRow : sourceData) {
+      // Log source row values to console
+      System.out.println("Processing source row: " + sourceRow);
+
+      String key = buildKey(sourceRow, hashLookupStore.getSourceSearchColumns(), hashLookupStore);
+      String hashedKey = hashValue(key, hashLookupStore.getAlgorithm(), hashLookupStore.getSeed());
+
+      Map<String, String> matchedRow = getMatchedRow(hashedKey, lookupMap, lookupData, hashLookupStore);
+
+      Map<String, String> outputRow = createOutputRow(sourceRow, matchedRow, hashLookupStore);
+      outputRows.add(outputRow);
+    }
+
+    // Write the output CSV file
+    writeCsv(outputCsvPath, outputHeader, outputRows);
+
+    // Set validation response status and return
+    validationResponse.setStatus("Success");
+    validationResponse.setMessages(List.of("CSV processing completed successfully: " + outputCsvPath));
+    return validationResponse;
+  }
+
+  private Map<String, Map<String, String>> buildLookupMap(List<Map<String, String>> lookupData, HashLookupStore hashLookupStore) {
+    Map<String, Map<String, String>> lookupMap = new HashMap<>();
+    if (Boolean.TRUE.equals(hashLookupStore.getCacheEnabled())) {
+      for (Map<String, String> row : lookupData) {
+        String key = buildKey(row, hashLookupStore.getLookupSearchColumns(), hashLookupStore);
+        lookupMap.put(key, row);
+      }
+    }
+    return lookupMap;
+  }
+
+  private List<String> prepareOutputHeader(List<Map<String, String>> sourceData, HashLookupStore hashLookupStore, ValidationResponse validationResponse) {
+    List<String> outputHeader = new ArrayList<>(sourceData.get(0).keySet());
+
+    boolean destinationColumnsPresent = true;
+    for (String destCol : hashLookupStore.getDestinationColumns()) {
+      if (!sourceData.get(0).containsKey(destCol)) {
+        destinationColumnsPresent = false;
+        validationResponse.setMessages(List.of("Destination column " + destCol + " not found in source data."));
+      }
+    }
+
+    // If destination columns are not present, use lookup value columns instead
+    if (!destinationColumnsPresent) {
+      outputHeader.removeAll(hashLookupStore.getSourceSearchColumns());
+      outputHeader.addAll(hashLookupStore.getLookupValueColumns());
+      validationResponse.setMessages(List.of("Using lookup value columns as destination columns"));
+    } else {
+      outputHeader.removeAll(hashLookupStore.getSourceSearchColumns());
+      outputHeader.addAll(hashLookupStore.getDestinationColumns());
+    }
+
+    return outputHeader;
+  }
+
+  private Map<String, String> getMatchedRow(String hashedKey, Map<String, Map<String, String>> lookupMap, List<Map<String, String>> lookupData, HashLookupStore hashLookupStore) {
+    Map<String, String> matchedRow = null;
+    if (Boolean.TRUE.equals(hashLookupStore.getCacheEnabled())) {
+      matchedRow = lookupMap.get(hashedKey);
+    } else {
+      for (Map<String, String> row : lookupData) {
+        String rawKey = buildKey(row, hashLookupStore.getLookupSearchColumns(), hashLookupStore);
+        if (rawKey.equals(hashedKey)) {
+          matchedRow = row;
+          break;
+        }
+      }
+    }
+    return matchedRow;
+  }
+
+  private Map<String, String> createOutputRow(Map<String, String> sourceRow, Map<String, String> matchedRow, HashLookupStore hashLookupStore) {
+    Map<String, String> outputRow = new HashMap<>();
+
+    // Add non-search columns from the source
+    for (String col : sourceRow.keySet()) {
+      if (!hashLookupStore.getSourceSearchColumns().contains(col)) {
+        outputRow.put(col, sourceRow.get(col));
+      }
+    }
+
+    // Adding matched lookup data to output row
+    if (matchedRow != null) {
+      for (int i = 0; i < hashLookupStore.getDestinationColumns().size(); i++) {
+        String destCol = hashLookupStore.getDestinationColumns().get(i);
+        String lookupValCol = hashLookupStore.getLookupValueColumns().get(i);
+        outputRow.put(destCol, matchedRow.getOrDefault(lookupValCol, ""));
+      }
+    } else if (hashLookupStore.getPreserveOptions().contains("PRESERVE")) {
+      for (String destCol : hashLookupStore.getDestinationColumns()) {
+        outputRow.put(destCol, "");
+      }
+    }
+    return outputRow;
+  }
+
+  private void writeCsv(String path, List<String> headers, List<Map<String, String>> data) throws Exception {
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(new File(path)))) {
+      writer.write(String.join(",", headers));
+      writer.newLine();
+      for (Map<String, String> row : data) {
+        List<String> values = new ArrayList<>();
+        for (String header : headers) {
+          values.add(row.getOrDefault(header, ""));
+        }
+        writer.write(String.join(",", values));
+        writer.newLine();
+      }
+    }
+  }
+
+  private List<Map<String, String>> readCsv(MultipartFile file) throws Exception {
+    List<Map<String, String>> result = new ArrayList<>();
+    try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()))) {
+      String[] headers = reader.readLine().split(",");
+      String line;
+      while ((line = reader.readLine()) != null) {
+        String[] values = line.split(",", -1);
+        Map<String, String> row = new LinkedHashMap<>();
+        for (int i = 0; i < headers.length; i++) {
+          row.put(headers[i], i < values.length ? values[i] : "");
+        }
+        result.add(row);
+      }
+    }
+    return result;
+  }
+
+  private String buildKey(Map<String, String> row, List<String> columns, HashLookupStore config) {
+    StringBuilder sb = new StringBuilder();
+    for (String col : columns) {
+      String val = row.getOrDefault(col, "");
+      if ("TRIM".equalsIgnoreCase(config.getTrimCharacters())) val = val.trim();
+      if ("UPPER".equalsIgnoreCase(config.getTrimCharacters())) val = val.toUpperCase();
+      sb.append(val);
+    }
+    return sb.toString();
+  }
+
+  private String hashValue(String input, String algorithm, String seed) throws Exception {
+    String finalInput = (seed != null ? seed : "") + input;
+    MessageDigest md = MessageDigest.getInstance(algorithm != null ? algorithm : "SHA-256");
+    byte[] hash = md.digest(finalInput.getBytes("UTF-8"));
+    StringBuilder hex = new StringBuilder();
+    for (byte b : hash) hex.append(String.format("%02x", b));
+    return hex.toString();
+  }
+
+
+
+}

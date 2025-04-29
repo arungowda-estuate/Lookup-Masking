@@ -1,0 +1,21 @@
+item_id,item_description,category,rating,unit_price,on_hand_inventory
+I0001,Premium Laptop Model X1,Electronics,PG13,899.99,50
+I0002,Designer Office Chair,Furniture,G,249.99,75
+I0003,Luxury Watch Chronograph,Accessories,PG,499.99,30
+I0004,Professional Camera Kit,Electronics,PG,799.99,25
+I0005,Home Fitness Equipment Set,Sports,G,349.99,40
+I0006,Smart Home Security System,Electronics,G,299.99,60
+I0007,Gourmet Cookware Collection,Home,G,199.99,45
+I0008,Premium Audio System,Electronics,PG,599.99,35
+I0009,Designer Handbag,Fashion,G,399.99,50
+I0010,Smartphone Latest Model,Electronics,PG13,699.99,70
+I0011,Ergonomic Standing Desk,Furniture,G,449.99,30
+I0012,Wireless Noise-Canceling Headphones,Electronics,G,249.99,65
+I0013,Professional Blender,Home,G,149.99,55
+I0014,Outdoor Camping Gear Set,Sports,PG,199.99,40
+I0015,"Smart 4K Television 55""",Electronics,G,799.99,25
+I0016,Leather Office Briefcase,Accessories,G,179.99,60
+I0017,Digital Drawing Tablet,Electronics,G,349.99,35
+I0018,Premium Coffee Machine,Home,G,299.99,45
+I0019,Mountain Bike Pro Series,Sports,PG13,599.99,20
+I0020,Wireless Gaming Mouse,Electronics,PG,89.99,80
