@@ -17,7 +17,7 @@ public class HashLookupFunctionValidator {
 
   public ValidationResponse validateAndExtract(String input) {
     List<String> messages = new ArrayList<>();
-    hashLookupStore.clear(); // Clear previous data
+    hashLookupStore.clear(); // Clear previous state
 
     if (input == null || input.trim().isEmpty()) {
       messages.add("Input cannot be empty.");
@@ -33,9 +33,7 @@ public class HashLookupFunctionValidator {
     }
 
     String inside = input.substring("HASH_LOOKUP(".length(), input.length() - 1).trim();
-
-    // Split by commas, respecting parentheses inside
-    List<String> tokens = splitTokens(inside);
+    List<String> tokens = splitTokens(inside); // Split by commas respecting nested parentheses
 
     boolean firstTokenHandled = false;
 
@@ -43,15 +41,13 @@ public class HashLookupFunctionValidator {
       token = token.trim();
       if (token.isEmpty()) continue;
 
+      // Handle first token: either SRCSEARCH=... or direct column name
       if (!firstTokenHandled) {
-        // If SRCSEARCH=() is provided
         if (token.startsWith("SRCSEARCH=")) {
           String cols = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
           hashLookupStore.setSourceSearchColumns(
               new ArrayList<>(Arrays.asList(cols.split("\\s*,\\s*"))));
-        }
-        // If direct column name
-        else if (!token.contains("=") && !token.contains("(")) {
+        } else if (!token.contains("=") && !token.contains("(")) {
           hashLookupStore.setSourceSearchColumns(new ArrayList<>(List.of(token)));
         } else {
           messages.add("First token must be a column name or SRCSEARCH=(...). Found: " + token);
@@ -60,6 +56,7 @@ public class HashLookupFunctionValidator {
         continue;
       }
 
+      // Keyword-specific parsing (must be done BEFORE generic (..)-block parsing)
       if (token.startsWith("SRCSEARCH=")) {
         String cols = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
         hashLookupStore.setSourceSearchColumns(
@@ -71,7 +68,24 @@ public class HashLookupFunctionValidator {
         String cols = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
         hashLookupStore.setDestinationColumns(
             new ArrayList<>(Arrays.asList(cols.split("\\s*,\\s*"))));
-      } else if (token.contains("(") && token.endsWith(")")) {
+      } else if (token.startsWith("PRESERVE=")) {
+        String preserve = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
+        hashLookupStore.setPreserveOptions(
+            new ArrayList<>(Arrays.asList(preserve.split("\\s*,\\s*"))));
+      } else if (token.startsWith("ALGO=")) {
+        String algo = token.substring(token.indexOf('=') + 1).trim();
+        hashLookupStore.setAlgorithm(algo);
+      } else if (token.equalsIgnoreCase("CACHE")) {
+        hashLookupStore.setCacheEnabled(true);
+      } else if (token.equalsIgnoreCase("NOCACHE")) {
+        hashLookupStore.setCacheEnabled(false);
+      } else if (token.startsWith("SEED=")) {
+        String seed = token.substring(token.indexOf('=') + 1).trim();
+        hashLookupStore.setSeed(seed);
+      }
+
+      // Generic lookup table function: tablename(col1, col2)
+      else if (token.contains("(") && token.endsWith(")")) {
         String tableName = token.substring(0, token.indexOf('(')).trim();
         String inner = token.substring(token.indexOf('(') + 1, token.lastIndexOf(')'));
         String[] lookupParts = inner.split("\\s*,\\s*");
@@ -85,21 +99,10 @@ public class HashLookupFunctionValidator {
         } else {
           messages.add("Invalid lookup table format: " + token);
         }
-      } else if (token.startsWith("ALGO=")) {
-        String algo = token.substring(token.indexOf('=') + 1).trim();
-        hashLookupStore.setAlgorithm(algo);
-      } else if (token.equalsIgnoreCase("CACHE")) {
-        hashLookupStore.setCacheEnabled(true);
-      } else if (token.equalsIgnoreCase("NOCACHE")) {
-        hashLookupStore.setCacheEnabled(false);
-      } else if (token.startsWith("PRESERVE=")) {
-        String preserve = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
-        hashLookupStore.setPreserveOptions(
-            new ArrayList<>(Arrays.asList(preserve.split("\\s*,\\s*"))));
-      } else if (token.startsWith("SEED=")) {
-        String seed = token.substring(token.indexOf('=') + 1).trim();
-        hashLookupStore.setSeed(seed);
-      } else {
+      }
+
+      // Unknown format
+      else {
         messages.add("Unknown token: " + token);
       }
     }
@@ -107,6 +110,7 @@ public class HashLookupFunctionValidator {
     if (hashLookupStore.getSourceSearchColumns().isEmpty()) {
       messages.add("SRCSEARCH columns are required.");
     }
+
     System.out.println(hashLookupStore);
 
     if (!messages.isEmpty()) {
