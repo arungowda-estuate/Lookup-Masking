@@ -11,183 +11,155 @@ import com.masking.service.lookup.CsvOutputGenerator;
 import com.masking.service.lookup.LookUpFunctionValidator;
 import com.masking.service.random_lookup.CsvProcessorService;
 import com.masking.service.random_lookup.RandomLookupFunctionValidator;
-import io.swagger.v3.oas.annotations.Operation;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api")
 public class LookUpController {
 
+  private static final Logger logger = LoggerFactory.getLogger(LookUpController.class);
+
   @Autowired private LookUpFunctionValidator lookUpFunctionValidator;
-  @Autowired private CsvColumnValidatorService csvColumnValidatorService;
-  @Autowired private CsvOutputGenerator csvOutputGenerator;
-  @Autowired private LookUpStore lookUpStore;
-  @Autowired private RandomLookupStore randomLookupStore;
   @Autowired private RandomLookupFunctionValidator randomLookupFunctionValidator;
-  @Autowired private CsvProcessorService csvProcessorService;
-
-  // Asynchronous method to validate lookup function
-  @Async
-  @Operation(
-      summary = "Validate lookup function",
-      description =
-          "Validates the lookup function and generate the CSV files using various lookup function")
-  @PostMapping(value = "/lookup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-  public CompletableFuture<ResponseEntity<ValidationResponse>> validateLookupFunction(
-      @RequestParam("sourceCsvPath") MultipartFile sourceCsvPath,
-      @RequestParam("lookupCsvPath") MultipartFile lookupCsvPath,
-      @RequestParam("lookupFunction") String lookupFunction) {
-
-    try {
-      ValidationResponse functionResponse =
-          validateAndExtractLookupFunction(lookupFunction, lookUpStore);
-      if (isInvalidResponse(functionResponse)) {
-        return CompletableFuture.completedFuture(
-            ResponseEntity.badRequest().body(functionResponse));
-      }
-
-      ValidationResponse columnValidationResponse =
-          csvColumnValidatorService.validateColumns(sourceCsvPath, lookupCsvPath, lookUpStore);
-      if (isInvalidResponse(columnValidationResponse)) {
-        return CompletableFuture.completedFuture(
-            ResponseEntity.badRequest().body(columnValidationResponse));
-      }
-
-      return CompletableFuture.completedFuture(generateOutputCsv(sourceCsvPath, lookupCsvPath));
-    } catch (Exception e) {
-      // Log error and handle the exception
-      return CompletableFuture.completedFuture(handleError(e));
-    }
-  }
-
-  // Asynchronous method to validate random lookup function
-  @Async
-  @Operation(
-      summary = "Validate random lookup function",
-      description =
-          "VValidates the random lookup function and generate the CSV files using various random lookup function")
-  @PostMapping(value = "/random_lookup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-  public CompletableFuture<ResponseEntity<ValidationResponse>> validateRandomLookupFunction(
-      @RequestParam("sourceCsvPath") MultipartFile sourceCsvPath,
-      @RequestParam("lookupCsvPath") MultipartFile lookupCsvPath,
-      @RequestParam("randomLookupFunction") String randomLookupFunction) {
-
-    try {
-      ValidationResponse functionResponse =
-          validateAndExtractRandomLookupFunction(randomLookupFunction, randomLookupStore);
-      if (isInvalidResponse(functionResponse)) {
-        return CompletableFuture.completedFuture(
-            ResponseEntity.badRequest().body(functionResponse));
-      }
-
-      ValidationResponse columnValidationResponse =
-          csvProcessorService.validateAndGenerateCsv(
-              sourceCsvPath, lookupCsvPath, randomLookupStore);
-      if (isInvalidResponse(columnValidationResponse)) {
-        return CompletableFuture.completedFuture(
-            ResponseEntity.badRequest().body(columnValidationResponse));
-      }
-
-      return CompletableFuture.completedFuture(
-          generateRandomLookupCsv(sourceCsvPath, lookupCsvPath));
-    } catch (Exception e) {
-      // Log error and handle the exception
-      return CompletableFuture.completedFuture(handleError(e));
-    }
-  }
-
   @Autowired private HashLookupFunctionValidator hashLookupFunctionValidator;
 
+  @Autowired private CsvColumnValidatorService csvColumnValidatorService;
+  @Autowired private CsvOutputGenerator csvOutputGenerator;
+  @Autowired private CsvProcessorService csvProcessorService;
   @Autowired private HashLookupCsvGenerator hashLookupCsvGenerator;
 
+  @Autowired private LookUpStore lookUpStore;
+  @Autowired private RandomLookupStore randomLookupStore;
   @Autowired private HashLookupStore hashLookupStore;
 
   @Async
-  @Operation(
-      summary = "Validate hash lookup function",
-      description =
-          "Validates the hash lookup function and generates the CSV files using various hash lookup function")
+  @PostMapping(value = "/lookup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public CompletableFuture<ResponseEntity<ValidationResponse>> validateLookupFunction(
+      @RequestParam("sourceCsvPath") MultipartFile sourceCsv,
+      @RequestParam("lookupCsvPath") MultipartFile lookupCsv,
+      @RequestParam("lookupFunction") String function) {
+
+    logger.info("Received /lookup request with function: {}", function);
+    try {
+      ValidationResponse functionValidation =
+          lookUpFunctionValidator.validateAndExtract(function, lookUpStore);
+      if (isInvalid(functionValidation)) {
+        logger.warn("Function validation failed: {}", functionValidation.getMessages());
+        return CompletableFuture.completedFuture(
+            ResponseEntity.badRequest().body(functionValidation));
+      }
+
+      ValidationResponse columnValidation =
+          csvColumnValidatorService.validateColumns(sourceCsv, lookupCsv, lookUpStore);
+      if (isInvalid(columnValidation)) {
+        logger.warn("Column validation failed: {}", columnValidation.getMessages());
+        return CompletableFuture.completedFuture(
+            ResponseEntity.badRequest().body(columnValidation));
+      }
+
+      logger.info("Generating output CSV for /lookup...");
+      return CompletableFuture.completedFuture(
+          buildCsvResponse(
+              csvOutputGenerator.generateOutputCsv(sourceCsv, lookupCsv, lookUpStore)));
+
+    } catch (Exception e) {
+      logger.error("Error processing /lookup request", e);
+      return CompletableFuture.completedFuture(handleException(e));
+    }
+  }
+
+  @Async
+  @PostMapping(value = "/random_lookup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public CompletableFuture<ResponseEntity<ValidationResponse>> validateRandomLookupFunction(
+      @RequestParam("sourceCsvPath") MultipartFile sourceCsv,
+      @RequestParam("lookupCsvPath") MultipartFile lookupCsv,
+      @RequestParam("randomLookupFunction") String function) {
+
+    logger.info("Received /random_lookup request with function: {}", function);
+    try {
+      ValidationResponse functionValidation =
+          randomLookupFunctionValidator.validateAndExtract(function, randomLookupStore);
+      if (isInvalid(functionValidation)) {
+        logger.warn(
+            "Random lookup function validation failed: {}", functionValidation.getMessages());
+        return CompletableFuture.completedFuture(
+            ResponseEntity.badRequest().body(functionValidation));
+      }
+
+      ValidationResponse processValidation =
+          csvProcessorService.validateAndGenerateCsv(sourceCsv, lookupCsv, randomLookupStore);
+      if (isInvalid(processValidation)) {
+        logger.warn("Random lookup CSV validation failed: {}", processValidation.getMessages());
+        return CompletableFuture.completedFuture(
+            ResponseEntity.badRequest().body(processValidation));
+      }
+
+      logger.info("Generating output CSV for /random_lookup...");
+      return CompletableFuture.completedFuture(
+          buildCsvResponse(
+              csvProcessorService.generateOutputCsv(sourceCsv, lookupCsv, randomLookupStore)));
+
+    } catch (Exception e) {
+      logger.error("Error processing /random_lookup request", e);
+      return CompletableFuture.completedFuture(handleException(e));
+    }
+  }
+
+  @Async
   @PostMapping(value = "/hash_lookup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public CompletableFuture<ResponseEntity<ValidationResponse>> validateHashLookupFunction(
-      @RequestParam("sourceCsvPath") MultipartFile sourceCsvPath,
-      @RequestParam("lookupCsvPath") MultipartFile lookupCsvPath,
-      @RequestParam("hashLookupFunction") String hashLookupFunction) {
+      @RequestParam("sourceCsvPath") MultipartFile sourceCsv,
+      @RequestParam("lookupCsvPath") MultipartFile lookupCsv,
+      @RequestParam("hashLookupFunction") String function) {
 
-    ValidationResponse functionValidationResponse =
-        hashLookupFunctionValidator.validateAndExtract(hashLookupFunction);
-
-    if (functionValidationResponse.getStatus().equalsIgnoreCase("SUCCESS")) {
-      try {
-        ValidationResponse processValidationResponse =
-            hashLookupCsvGenerator.process(sourceCsvPath, lookupCsvPath, hashLookupStore);
-        return CompletableFuture.completedFuture(
-            ResponseEntity.ok().body(processValidationResponse));
-      } catch (Exception e) {
-        throw new RuntimeException("Error during CSV processing", e);
-      }
+    logger.info("Received /hash_lookup request with function: {}", function);
+    ValidationResponse functionValidation =
+        hashLookupFunctionValidator.validateAndExtract(function);
+    if (!"SUCCESS".equalsIgnoreCase(functionValidation.getStatus())) {
+      logger.warn("Hash lookup function validation failed: {}", functionValidation.getMessages());
+      return CompletableFuture.completedFuture(
+          ResponseEntity.badRequest().body(functionValidation));
     }
 
-    // Return function validation errors
-    return CompletableFuture.completedFuture(
-        ResponseEntity.badRequest().body(functionValidationResponse));
+    try {
+      logger.info("Generating output CSV for /hash_lookup...");
+      return CompletableFuture.completedFuture(
+          buildCsvResponse(hashLookupCsvGenerator.process(sourceCsv, lookupCsv, hashLookupStore)));
+    } catch (Exception e) {
+      logger.error("Error processing /hash_lookup request", e);
+      return CompletableFuture.completedFuture(handleException(e));
+    }
   }
 
-  // Common function to validate lookup functions
-  private ValidationResponse validateAndExtractLookupFunction(
-      String lookupFunction, LookUpStore lookUpStore) {
-    return lookUpFunctionValidator.validateAndExtract(lookupFunction, lookUpStore);
-  }
-
-  // Common function to validate random lookup functions
-  private ValidationResponse validateAndExtractRandomLookupFunction(
-      String randomLookupFunction, RandomLookupStore randomLookupStore) {
-    return randomLookupFunctionValidator.validateAndExtract(
-        randomLookupFunction, randomLookupStore);
-  }
-
-  // Helper function to check if response is invalid
-  private boolean isInvalidResponse(ValidationResponse response) {
+  private boolean isInvalid(ValidationResponse response) {
     return response.getMessages() != null && !response.getMessages().isEmpty();
   }
 
-  // Generate CSV output for Lookup
-  private ResponseEntity<ValidationResponse> generateOutputCsv(
-      MultipartFile sourceCsvPath, MultipartFile lookupCsvPath) {
-    ValidationResponse outputResponse =
-        csvOutputGenerator.generateOutputCsv(sourceCsvPath, lookupCsvPath, lookUpStore);
-    return buildResponse(outputResponse);
-  }
-
-  // Generate CSV output for Random Lookup
-  private ResponseEntity<ValidationResponse> generateRandomLookupCsv(
-      MultipartFile sourceCsvPath, MultipartFile lookupCsvPath) {
-    ValidationResponse outputCsvResponse =
-        csvProcessorService.generateOutputCsv(sourceCsvPath, lookupCsvPath, randomLookupStore);
-    return buildResponse(outputCsvResponse);
-  }
-
-  // Helper method to construct the response
-  private ResponseEntity<ValidationResponse> buildResponse(ValidationResponse response) {
-    if ("SUCCESS".equals(response.getStatus())) {
-      String outputFilePath =
-          response.getMessages().get(0); // Assuming message contains the file path
+  private ResponseEntity<ValidationResponse> buildCsvResponse(ValidationResponse response) {
+    if ("SUCCESS".equalsIgnoreCase(response.getStatus())) {
+      String outputPath = response.getMessages().get(0);
+      logger.info("CSV generated successfully at: {}", outputPath);
       return ResponseEntity.ok(
-          new ValidationResponse("SUCCESS", List.of("File generated \n " + outputFilePath)));
+          new ValidationResponse("SUCCESS", List.of("File Generated" + outputPath)));
     }
+    logger.error("CSV generation failed: {}", response.getMessages());
     return ResponseEntity.status(500).body(response);
   }
 
-  // Method to handle errors globally
-  private ResponseEntity<ValidationResponse> handleError(Exception e) {
-    // You can log the exception here
-    e.printStackTrace();
+  private ResponseEntity<ValidationResponse> handleException(Exception e) {
+    logger.error("Unhandled exception: {}", e.getMessage(), e);
     return ResponseEntity.status(500)
         .body(new ValidationResponse("ERROR", List.of("Internal Server Error: " + e.getMessage())));
   }

@@ -25,6 +25,8 @@ public class HashLookupCsvGenerator {
 
     List<Map<String, String>> sourceData = readCsv(sourceCsv);
     List<Map<String, String>> lookupData = readCsv(lookupCsv);
+    System.out.println("Source Data: " + sourceData);
+    System.out.println("Lookup Data: " + lookupData);
 
     Map<String, Map<String, String>> lookupMap = buildLookupMap(lookupData, hashLookupStore);
     List<String> outputHeader =
@@ -33,13 +35,16 @@ public class HashLookupCsvGenerator {
 
     for (Map<String, String> sourceRow : sourceData) {
       String hashedKey = hashValue(sourceRow, lookupData, hashLookupStore);
-
       String reversedLookupColumnValue =
           resolveHashToLookupValue(hashedKey, lookupData, hashLookupStore);
+      System.out.println("Hashed Key: " + hashedKey);
+      System.out.println("Source Key: " + reversedLookupColumnValue);
 
       Map<String, String> matchedRow =
           getMatchedRow(reversedLookupColumnValue, lookupMap, lookupData, hashLookupStore);
       Map<String, String> outputRow = createOutputRow(sourceRow, matchedRow, hashLookupStore);
+      System.out.println("Output Row: " + outputRow);
+
       outputRows.add(outputRow);
     }
 
@@ -47,6 +52,7 @@ public class HashLookupCsvGenerator {
     validationResponse.setStatus("Success");
     validationResponse.setMessages(
         List.of("CSV processing completed successfully: " + outputCsvPath));
+    resetColumnStore(hashLookupStore);
     return validationResponse;
   }
 
@@ -217,5 +223,18 @@ public class HashLookupCsvGenerator {
     }
 
     return null; // No match found
+  }
+
+  public static void resetColumnStore(HashLookupStore hashLookupStore) {
+    hashLookupStore.setSourceSearchColumns(new ArrayList<>());
+    hashLookupStore.setDestinationColumns(new ArrayList<>());
+    hashLookupStore.setLookupTableName(null);
+    hashLookupStore.setLookupSearchColumns(new ArrayList<>());
+    hashLookupStore.setLookupValueColumns(new ArrayList<>());
+    hashLookupStore.setTrimCharacters(null);
+    hashLookupStore.setAlgorithm(null);
+    hashLookupStore.setSeed(null);
+    hashLookupStore.setPreserveOptions(new ArrayList<>());
+    hashLookupStore.setCacheEnabled(false);
   }
 }

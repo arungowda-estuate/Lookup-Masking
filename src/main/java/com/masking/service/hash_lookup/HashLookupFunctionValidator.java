@@ -1,10 +1,10 @@
 package com.masking.service.hash_lookup;
 
+import static com.masking.service.hash_lookup.HashLookupCsvGenerator.resetColumnStore;
+
 import com.masking.component.ValidationResponse;
 import com.masking.model.hash_lookup.HashLookupStore;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -12,113 +12,191 @@ import org.springframework.stereotype.Service;
 public class HashLookupFunctionValidator {
 
   @Autowired private HashLookupStore hashLookupStore;
-
   @Autowired private ValidationResponse response;
 
   public ValidationResponse validateAndExtract(String input) {
     List<String> messages = new ArrayList<>();
-    hashLookupStore.clear(); // Clear previous state
+    resetColumnStore(hashLookupStore);
 
     if (input == null || input.trim().isEmpty()) {
-      messages.add("Input cannot be empty.");
-      return buildErrorResponse(messages);
+      return error("Input cannot be empty.");
     }
 
     input = input.trim();
 
-    // Basic structure check
     if (!input.startsWith("HASH_LOOKUP(") || !input.endsWith(")")) {
-      messages.add("Function must start with HASH_LOOKUP( and end with ).");
-      return buildErrorResponse(messages);
+      return error("Function must start with HASH_LOOKUP( and end with ).");
     }
 
-    String inside = input.substring("HASH_LOOKUP(".length(), input.length() - 1).trim();
-    List<String> tokens = splitTokens(inside); // Split by commas respecting nested parentheses
+    String inner = input.substring("HASH_LOOKUP(".length(), input.length() - 1).trim();
+    List<String> tokens = splitTokens(inner);
 
-    boolean firstTokenHandled = false;
+    if (tokens.isEmpty()) {
+      return error("HASH_LOOKUP must contain at least one argument.");
+    }
 
-    for (String token : tokens) {
-      token = token.trim();
-      if (token.isEmpty()) continue;
+    boolean firstHandled = false;
 
-      // Handle first token: either SRCSEARCH=... or direct column name
-      if (!firstTokenHandled) {
+    for (int i = 0; i < tokens.size(); i++) {
+      String token = tokens.get(i).trim();
+
+      if (!firstHandled) {
         if (token.startsWith("SRCSEARCH=")) {
-          String cols = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
-          hashLookupStore.setSourceSearchColumns(
-              new ArrayList<>(Arrays.asList(cols.split("\\s*,\\s*"))));
+          List<String> cols = parseListValue(token, "SRCSEARCH", messages);
+          if (!cols.isEmpty()) {
+            hashLookupStore.setSourceSearchColumns(cols);
+          }
         } else if (!token.contains("=") && !token.contains("(")) {
-          hashLookupStore.setSourceSearchColumns(new ArrayList<>(List.of(token)));
+          hashLookupStore.setSourceSearchColumns(List.of(token));
         } else {
           messages.add("First token must be a column name or SRCSEARCH=(...). Found: " + token);
         }
-        firstTokenHandled = true;
+        firstHandled = true;
         continue;
       }
 
-      // Keyword-specific parsing (must be done BEFORE generic (..)-block parsing)
-      if (token.startsWith("SRCSEARCH=")) {
-        String cols = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
-        hashLookupStore.setSourceSearchColumns(
-            new ArrayList<>(Arrays.asList(cols.split("\\s*,\\s*"))));
-      } else if (token.startsWith("TRIM=")) {
-        String trimChars = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
-        hashLookupStore.setTrimCharacters(trimChars);
-      } else if (token.startsWith("DEST=")) {
-        String cols = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
-        hashLookupStore.setDestinationColumns(
-            new ArrayList<>(Arrays.asList(cols.split("\\s*,\\s*"))));
-      } else if (token.startsWith("PRESERVE=")) {
-        String preserve = token.substring(token.indexOf('=') + 1).replaceAll("[()]", "").trim();
-        hashLookupStore.setPreserveOptions(
-            new ArrayList<>(Arrays.asList(preserve.split("\\s*,\\s*"))));
-      } else if (token.startsWith("ALGO=")) {
-        String algo = token.substring(token.indexOf('=') + 1).trim();
-        hashLookupStore.setAlgorithm(algo);
-      } else if (token.equalsIgnoreCase("CACHE")) {
-        hashLookupStore.setCacheEnabled(true);
-      } else if (token.equalsIgnoreCase("NOCACHE")) {
-        hashLookupStore.setCacheEnabled(false);
-      } else if (token.startsWith("SEED=")) {
-        String seed = token.substring(token.indexOf('=') + 1).trim();
-        hashLookupStore.setSeed(seed);
-      }
+      String upperToken = token.toUpperCase();
 
-      // Generic lookup table function: tablename(col1, col2)
-      else if (token.contains("(") && token.endsWith(")")) {
-        String tableName = token.substring(0, token.indexOf('(')).trim();
-        String inner = token.substring(token.indexOf('(') + 1, token.lastIndexOf(')'));
-        String[] lookupParts = inner.split("\\s*,\\s*");
-
-        if (lookupParts.length >= 1) {
-          hashLookupStore.setLookupTableName(tableName);
-          hashLookupStore.setLookupSearchColumns(new ArrayList<>(List.of(lookupParts[0])));
-          if (lookupParts.length > 1) {
-            hashLookupStore.setLookupValueColumns(new ArrayList<>(List.of(lookupParts[1])));
-          }
-        } else {
-          messages.add("Invalid lookup table format: " + token);
+      if (upperToken.startsWith("DEST=")) {
+        hashLookupStore.setDestinationColumns(parseListValue(token, "DEST", messages));
+      } else if (token.matches("[a-zA-Z_][a-zA-Z0-9_]*\\(.*\\)")) {
+        Map<String, List<String>> parts = parseTableBlockArgs(token, messages);
+        if (!parts.isEmpty()) {
+          hashLookupStore.setLookupTableName(parts.get("tableName").get(0));
+          hashLookupStore.setLookupSearchColumns(
+              parts.getOrDefault("lookupSearchColumns", List.of()));
+          hashLookupStore.setLookupValueColumns(
+              parts.getOrDefault("lookupValueColumns", List.of()));
         }
-      }
-
-      // Unknown format
-      else {
-        messages.add("Unknown token: " + token);
+      } else {
+        messages.add("Unknown or invalid token: " + token);
       }
     }
 
     if (hashLookupStore.getSourceSearchColumns().isEmpty()) {
-      messages.add("SRCSEARCH columns are required.");
+      messages.add("SRCSEARCH or source column must be provided.");
     }
-
-    System.out.println(hashLookupStore);
+    if (hashLookupStore.getDestinationColumns().isEmpty()) {
+      messages.add("DEST must be specified and contain at least one column.");
+    }
+    if (hashLookupStore.getLookupTableName() == null) {
+      messages.add("Lookup table block must be present and valid.");
+    }
 
     if (!messages.isEmpty()) {
       return buildErrorResponse(messages);
     }
 
     response.setStatus("SUCCESS");
-    response.setMessages(new ArrayList<>(List.of("Validation passed successfully.")));
+    response.setMessages(List.of("✅ Validation passed successfully."));
+    return response;
+  }
+
+  private List<String> splitTokens(String input) {
+    List<String> tokens = new ArrayList<>();
+    int depth = 0;
+    StringBuilder sb = new StringBuilder();
+    for (char c : input.toCharArray()) {
+      if (c == ',' && depth == 0) {
+        tokens.add(sb.toString());
+        sb.setLength(0);
+      } else {
+        if (c == '(') depth++;
+        if (c == ')') depth--;
+        sb.append(c);
+      }
+    }
+    if (sb.length() > 0) {
+      tokens.add(sb.toString());
+    }
+    return tokens;
+  }
+
+  private List<String> parseListValue(String token, String key, List<String> messages) {
+    int idx = token.indexOf('=');
+    if (idx == -1) {
+      messages.add("Missing '=' in " + key + " token.");
+      return List.of();
+    }
+    String value = token.substring(idx + 1).trim();
+
+    // Handle format like DEST=(a, b) or DEST=a,b
+    if (value.startsWith("(") && value.endsWith(")")) {
+      value = value.substring(1, value.length() - 1).trim();
+    }
+
+    if (value.isEmpty()) {
+      messages.add(key + " cannot be empty.");
+      return List.of();
+    }
+
+    return Arrays.asList(value.split("\\s*,\\s*"));
+  }
+
+  private Map<String, List<String>> parseTableBlockArgs(String input, List<String> messages) {
+    Map<String, List<String>> result = new HashMap<>();
+    int firstParen = input.indexOf('(');
+    int lastParen = input.lastIndexOf(')');
+
+    if (firstParen == -1 || lastParen == -1 || lastParen <= firstParen) {
+      messages.add(
+          "❌ Invalid table block format. Must be in form tableName(search_col, values=(...))");
+      return result;
+    }
+
+    String tableName = input.substring(0, firstParen).trim();
+    String inner = input.substring(firstParen + 1, lastParen).trim();
+    List<String> parts = splitTokens(inner);
+
+    if (parts.isEmpty()) {
+      messages.add("❌ Lookup table must contain at least one search column.");
+      return result;
+    }
+
+    String searchCol = parts.get(0).trim();
+    if (!searchCol.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+      messages.add("❌ Invalid search column: " + searchCol);
+      return result;
+    }
+
+    List<String> searchCols = List.of(searchCol);
+    List<String> valueCols = new ArrayList<>();
+
+    if (parts.size() > 1) {
+      String second = parts.get(1).trim();
+
+      if (second.startsWith("values=")) {
+        int eqIdx = second.indexOf('=');
+        String valuesPart = second.substring(eqIdx + 1).trim();
+        if (valuesPart.startsWith("(") && valuesPart.endsWith(")")) {
+          valuesPart = valuesPart.substring(1, valuesPart.length() - 1);
+        } else {
+          messages.add("❌ Invalid values format. Expected: values=(val1, val2)");
+          return result;
+        }
+        for (String col : valuesPart.split("\\s*,\\s*")) {
+          col = col.trim();
+          if (!col.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+            messages.add("❌ Invalid value column: " + col);
+            return result;
+          }
+          valueCols.add(col);
+        }
+      } else {
+        messages.add("❌ Second argument in table block must be values=(...). Found: " + second);
+        return result;
+      }
+    }
+
+    result.put("tableName", List.of(tableName));
+    result.put("lookupSearchColumns", searchCols);
+    result.put("lookupValueColumns", valueCols);
+    return result;
+  }
+
+  private ValidationResponse error(String msg) {
+    response.setStatus("ERROR");
+    response.setMessages(List.of("❌ " + msg));
     return response;
   }
 
@@ -126,28 +204,5 @@ public class HashLookupFunctionValidator {
     response.setStatus("ERROR");
     response.setMessages(messages);
     return response;
-  }
-
-  private List<String> splitTokens(String input) {
-    List<String> tokens = new ArrayList<>();
-    int depth = 0;
-    StringBuilder current = new StringBuilder();
-
-    for (char ch : input.toCharArray()) {
-      if (ch == ',' && depth == 0) {
-        tokens.add(current.toString());
-        current.setLength(0);
-      } else {
-        if (ch == '(') depth++;
-        if (ch == ')') depth--;
-        current.append(ch);
-      }
-    }
-
-    if (current.length() > 0) {
-      tokens.add(current.toString());
-    }
-
-    return tokens;
   }
 }
